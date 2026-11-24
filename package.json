@@ -1,0 +1,17 @@
+{
+  "name": "baz.bz",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "font": "node scripts/subset-font.mjs"
+  },
+  "devDependencies": {
+    "geist": "^1.9.2",
+    "subset-font": "^2.9.0",
+    "vite": "^8.3.8"
+  },
+  "packageManager": "pnpm@10.12.1"
+}

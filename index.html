@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sebastian gutierrez</title>
+    <meta name="description" content="i make things w &lt;3" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://baz.bz/" />
+    <link rel="icon" href="data:," />
+    <link rel="preload" href="/src/geist.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      @font-face {
+        font-family: Geist;
+        src: url(/src/geist.woff2) format("woff2");
+        font-weight: 400 600;
+        font-display: swap;
+      }
+      :root {
+        --bg: #fff;
+        --fg: #111;
+        --muted: #666;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0a0a0a;
+          --fg: #ededed;
+          --muted: #8f8f8f;
+        }
+      }
+      html {
+        background: var(--bg);
+        color: var(--fg);
+        font: 400 1.125rem/1.5 Geist, system-ui, sans-serif;
+        font-synthesis: none;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+      }
+      body {
+        box-sizing: border-box;
+        min-height: 100svh;
+        margin: 0;
+        padding: clamp(1.5rem, 6vw, 4rem);
+        display: grid;
+        place-items: center;
+        text-align: left;
+      }
+      h1 {
+        margin: 0;
+        font: inherit;
+        font-weight: 600;
+      }
+      a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      a:hover {
+        color: var(--fg);
+        text-decoration: underline;
+        text-underline-offset: 0.2em;
+      }
+      p {
+        margin: 1.5rem 0 0;
+      }
+      .heart {
+        all: unset;
+        cursor: pointer;
+        display: inline-block;
+        padding: 0.4em;
+        margin: -0.4em;
+        vertical-align: -0.16em;
+        border-radius: 0.4em;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+      }
+      /* 80 beats a minute while the heart is whole. */
+      @media (prefers-reduced-motion: no-preference) {
+        .heart:not([data-broken]) [data-heart-shape] {
+          transform-box: fill-box;
+          transform-origin: 50% 60%;
+          animation: beat 0.75s ease-in-out infinite;
+        }
+      }
+      @keyframes beat {
+        0%,
+        46%,
+        100% {
+          transform: scale(1);
+        }
+        12% {
+          transform: scale(1.16);
+        }
+        24% {
+          transform: scale(1);
+        }
+        35% {
+          transform: scale(1.09);
+        }
+      }
+      .heart:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: -0.2em;
+      }
+      .heart svg {
+        display: block;
+        width: 1em;
+        height: 1em;
+        overflow: visible;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>sebastian gutierrez</h1>
+      <a href="mailto:baz@baz.bz">baz@baz.bz</a>
+      <p>
+        i make things w
+        <button type="button" class="heart" data-heart aria-label="love">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <mask id="heart-kept" maskUnits="userSpaceOnUse" x="-12" y="-12" width="48" height="48">
+              <path data-heart-kept fill="#fff" stroke="#fff" stroke-width="0.3" stroke-linejoin="round" />
+            </mask>
+            <path
+              data-heart-shape
+              fill="currentColor"
+              d="M12 21.2C12 21.2 2.6 14.9 2.6 8.6C2.6 5.5 5 3.2 7.9 3.2C9.6 3.2 11.1 4.1 12 5.5C12.9 4.1 14.4 3.2 16.1 3.2C19 3.2 21.4 5.5 21.4 8.6C21.4 14.9 12 21.2 12 21.2Z"
+            />
+          </svg>
+        </button>
+      </p>
+    </main>
+    <script type="module" src="/src/heart.js"></script>
+  </body>
+</html>
