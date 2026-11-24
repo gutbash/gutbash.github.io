@@ -74,28 +74,32 @@
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
       }
-      /* 80 beats a minute while the heart is whole. */
+      /* 60 beats a minute while the heart is whole. The swell is a growing outline in the
+         heart's own colour, not a scale transform: browsers scale a cached bitmap for
+         transform animations, which goes soft at high zoom, while a stroke is redrawn
+         sharp on every frame. */
       @media (prefers-reduced-motion: no-preference) {
         .heart:not([data-broken]) [data-heart-shape] {
-          transform-box: fill-box;
-          transform-origin: 50% 60%;
-          animation: beat 0.75s ease-in-out infinite;
+          stroke: currentColor;
+          stroke-linejoin: round;
+          stroke-width: 0;
+          animation: beat 1s ease-in-out infinite;
         }
       }
       @keyframes beat {
         0%,
-        46%,
+        35%,
         100% {
-          transform: scale(1);
+          stroke-width: 0;
         }
-        12% {
-          transform: scale(1.16);
+        9% {
+          stroke-width: 2.6px;
         }
-        24% {
-          transform: scale(1);
+        18% {
+          stroke-width: 0;
         }
-        35% {
-          transform: scale(1.09);
+        26% {
+          stroke-width: 1.5px;
         }
       }
       .heart:focus-visible {
