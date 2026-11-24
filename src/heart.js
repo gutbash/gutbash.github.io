@@ -20,7 +20,8 @@ const SNAP_RADIUS = 18; // px from home at which a dropped shard clicks in
 const button = document.querySelector('[data-heart]');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 
-if (button && !reduced.matches) init();
+if (reduced.matches) document.querySelector('[data-heart-beat]')?.remove();
+else if (button) init();
 
 function init() {
   const icon = button.querySelector('svg');

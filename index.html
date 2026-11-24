@@ -74,45 +74,13 @@
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
       }
-      /* 60 beats a minute while the heart is whole. The beat resizes the icon itself, not
-         a transform or an outline, so the browser redraws the vector at its true size on
-         every frame and the edge stays as smooth as a still one at any zoom. The icon
-         is positioned out of the text flow inside a fixed 1em box, so resizing it cannot
-         nudge the words next to it. */
+      /* The icon sits out of the text flow in a fixed 1em box. */
       .heart-box {
         display: block;
         position: relative;
         width: 1em;
         height: 1em;
         contain: layout style;
-      }
-      @media (prefers-reduced-motion: no-preference) {
-        .heart:not([data-broken]) svg {
-          animation: beat 1s ease-in-out infinite;
-        }
-      }
-      @keyframes beat {
-        0%,
-        18%,
-        35%,
-        100% {
-          width: 1em;
-          height: 1em;
-          top: 0;
-          left: 0;
-        }
-        9% {
-          width: 1.16em;
-          height: 1.16em;
-          top: -0.096em;
-          left: -0.08em;
-        }
-        26% {
-          width: 1.09em;
-          height: 1.09em;
-          top: -0.054em;
-          left: -0.045em;
-        }
       }
       .heart[data-broken] [data-heart-shape] {
         visibility: hidden;
@@ -142,11 +110,31 @@
         <button type="button" class="heart" data-heart aria-label="love">
           <span class="heart-box"><svg viewBox="0 0 24 24" aria-hidden="true">
             <path data-heart-kept fill="currentColor" />
-            <path
-              data-heart-shape
-              fill="currentColor"
-              d="M12 21.2C12 21.2 2.6 14.9 2.6 8.6C2.6 5.5 5 3.2 7.9 3.2C9.6 3.2 11.1 4.1 12 5.5C12.9 4.1 14.4 3.2 16.1 3.2C19 3.2 21.4 5.5 21.4 8.6C21.4 14.9 12 21.2 12 21.2Z"
-            />
+            <!-- 60 beats a minute. The beat scales the path inside the SVG's own coordinate
+                 space, so every frame is redrawn as a vector with sub-pixel antialiasing:
+                 smooth on low-density screens and sharp at any zoom. heart.js removes the
+                 animation for visitors who ask for reduced motion. -->
+            <g transform="translate(12 13.5)">
+              <g>
+                <animateTransform
+                  data-heart-beat
+                  attributeName="transform"
+                  type="scale"
+                  dur="1s"
+                  repeatCount="indefinite"
+                  calcMode="spline"
+                  values="1; 1.16; 1; 1.09; 1; 1"
+                  keyTimes="0; 0.09; 0.18; 0.26; 0.35; 1"
+                  keySplines="0.42 0 0.58 1; 0.42 0 0.58 1; 0.42 0 0.58 1; 0.42 0 0.58 1; 0 0 1 1"
+                />
+                <path
+                  data-heart-shape
+                  transform="translate(-12 -13.5)"
+                  fill="currentColor"
+                  d="M12 21.2C12 21.2 2.6 14.9 2.6 8.6C2.6 5.5 5 3.2 7.9 3.2C9.6 3.2 11.1 4.1 12 5.5C12.9 4.1 14.4 3.2 16.1 3.2C19 3.2 21.4 5.5 21.4 8.6C21.4 14.9 12 21.2 12 21.2Z"
+                />
+              </g>
+            </g>
           </svg></span>
         </button>
       </p>
