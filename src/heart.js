@@ -1,6 +1,6 @@
 // The heart in the tagline: press it and it bursts into rigid shards that drift as if
 // weightless, turning slowly and never quite stopping, bouncing softly off the edges of
-// the page. On a phone, tilting the device nudges them. Every shard can be grabbed and
+// the page. Every shard can be grabbed and
 // thrown, and fitted back into the heart by hand, one at a time. If they are left alone
 // for a while, the remaining ones glide back into place by themselves, except one, which
 // keeps floating until it is dragged back into its gap.
@@ -16,8 +16,6 @@ const DRAG = 1.7; // 1/s; how quickly a burst or a throw bleeds off
 const DRIFT = 14; // px/s; shards never go slower than this
 const SPIN_DRIFT = 0.35; // rad/s; nor turn slower than this
 const BOUNCE = 0.85; // speed kept when bouncing off an edge of the page
-const TILT = 9; // px/s^2 of push per degree the phone is tilted
-const TILT_MAX = 25; // degrees
 const REBUILD_DELAY_MS = 5000; // since the burst or the last shard was let go, none held
 const RETURN_MS = 2200;
 const STAGGER_MS = 140;
@@ -33,6 +31,7 @@ function init() {
   const icon = button.querySelector('svg');
   const shape = icon.querySelector('[data-heart-shape]');
   const kept = icon.querySelector('[data-heart-kept]');
+  const beat = icon.querySelector('[data-heart-beat]');
 
   // Page-sized layer the shards live in. It ignores the pointer except on the shards.
   // It is ordinary page content (absolute, not fixed): iOS Safari freezes and upscales
@@ -53,7 +52,6 @@ function init() {
   let last = 0;
   let acc = 0;
   let idleSince = 0;
-  const tilt = { x: 0, y: 0, base: null, on: false }; // push from the phone's tilt, px/s^2
   // The page edges, in the same coordinates the shards are drawn in. Read from the layer
   // itself, not window.innerWidth/Height: those shrink to the visible area when a phone
   // is pinch-zoomed, which would put the edges in the middle of the page.
@@ -166,10 +164,7 @@ function init() {
   }
 
   function step(b, dt) {
-    // Weightless: only the phone's tilt pushes, and only gently.
-    b.vx += tilt.x * dt;
-    b.vy += tilt.y * dt;
-    // Fast motion bleeds off, but never below a slow drift and a slow turn.
+    // Weightless: nothing pushes or pulls. Fast motion bleeds off, but never below a slow drift and a slow turn.
     const speed = Math.hypot(b.vx, b.vy);
     if (speed > DRIFT) {
       const k = Math.max(DRIFT / speed, Math.exp(-DRAG * dt));
@@ -206,33 +201,6 @@ function init() {
   const held = (b) => drag && drag.body === b;
   const free = (b) => !b.from && !b.snap && !held(b);
 
-  // Tilt is measured against a slowly following baseline, so however the phone is being
-  // held counts as level and only fresh tilts push the shards.
-  function onTilt(e) {
-    if (e.gamma == null || e.beta == null) return;
-    const turned = screen.orientation ? screen.orientation.angle : 0;
-    const g = turned === 90 ? e.beta : turned === 270 ? -e.beta : e.gamma;
-    const b = turned === 90 ? -e.gamma : turned === 270 ? e.gamma : e.beta;
-    tilt.base ||= { g, b };
-    tilt.base.g += (g - tilt.base.g) * 0.006;
-    tilt.base.b += (b - tilt.base.b) * 0.006;
-    const clamp = (n) => Math.max(-TILT_MAX, Math.min(TILT_MAX, n));
-    tilt.x = clamp(g - tilt.base.g) * TILT;
-    tilt.y = clamp(b - tilt.base.b) * TILT;
-  }
-
-  // iOS only hands out motion data after asking the visitor, and only from a tap.
-  function enableTilt() {
-    if (tilt.on || typeof DeviceOrientationEvent === 'undefined') return;
-    tilt.on = true;
-    const listen = () => addEventListener('deviceorientation', onTilt);
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission().then((answer) => answer === 'granted' && listen()).catch(() => {});
-    } else {
-      listen();
-    }
-  }
-
   // While the heart is broken the icon shows only the wedges whose shards are home, as
   // one plain path. Neighbouring fitted wedges are merged into a single outline, so there
   // is no seam between them and nothing but ordinary vector shapes on screen.
@@ -259,13 +227,15 @@ function init() {
     if (!bodies.length) {
       button.removeAttribute('data-broken');
       state = 'whole';
+      // The beat kept time unseen while the heart was broken; restart it from the top so
+      // the mended heart's first beat is a whole one.
+      beat?.beginElement();
     }
   }
 
   function shatter() {
     state = 'floating';
     idleSince = performance.now();
-    enableTilt();
     button.setAttribute('data-broken', '');
     wedges = fracture();
     bodies = wedges.map(makeBody);
