@@ -307,6 +307,18 @@ function init() {
     }
   }
 
+  // Throws a shard outwards from the middle of the heart, tumbling.
+  function burst(b) {
+    const dx = b.cx - 12, dy = b.cy - 11.5;
+    const len = Math.hypot(dx, dy) || 1;
+    const speed = rand(240, 520);
+    b.vx = (dx / len) * speed + rand(-60, 60);
+    b.vy = (dy / len) * speed + rand(-60, 60);
+    b.w = rand(-10, 10);
+    b.wx = rand(-9, 9);
+    b.wy = rand(-9, 9);
+  }
+
   function shatter() {
     state = 'floating';
     idleSince = performance.now();
@@ -314,16 +326,22 @@ function init() {
     wedges = fracture();
     bodies = wedges.map(makeBody);
     updateKept();
-    for (const b of bodies) {
-      const dx = b.cx - 12, dy = b.cy - 11.5;
-      const len = Math.hypot(dx, dy) || 1;
-      const speed = rand(240, 520);
-      b.vx = (dx / len) * speed + rand(-60, 60);
-      b.vy = (dy / len) * speed + rand(-60, 60);
-      b.w = rand(-10, 10);
-      b.wx = rand(-9, 9);
-      b.wy = rand(-9, 9);
-    }
+    bodies.forEach(burst);
+    run();
+  }
+
+  // The heart is broken but some of it is back in place: break that part again, along
+  // the same cracks, so the shards still adrift go on fitting.
+  function reshatter() {
+    const out = new Set(bodies.map((b) => b.wedge));
+    const fresh = wedges.filter((w) => !out.has(w)).map(makeBody);
+    if (!fresh.length) return;
+    state = 'floating';
+    loose = null;
+    idleSince = performance.now();
+    bodies.push(...fresh);
+    updateKept();
+    fresh.forEach(burst);
     run();
   }
 
@@ -459,6 +477,8 @@ function init() {
     if (state === 'whole') shatter();
     // Keyboard has no drag, so Enter/Space on the broken heart fetches the shard.
     else if (state === 'missing' && e.detail === 0 && !drag && loose && !loose.snap) snapHome(loose);
+    // Pressing what is left of a mended heart breaks it again.
+    else if (e.detail !== 0 && state !== 'returning' && !bodies.some((b) => b.snap)) reshatter();
   });
 
   addEventListener('resize', () => {
