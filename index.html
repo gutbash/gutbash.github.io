@@ -114,6 +114,9 @@
           left: -0.045em;
         }
       }
+      .heart[data-broken] [data-heart-shape] {
+        visibility: hidden;
+      }
       .heart:focus-visible {
         outline: 2px solid currentColor;
         outline-offset: -0.2em;
@@ -138,9 +141,7 @@
         i make things w
         <button type="button" class="heart" data-heart aria-label="love">
           <span class="heart-box"><svg viewBox="0 0 24 24" aria-hidden="true">
-            <mask id="heart-kept" maskUnits="userSpaceOnUse" x="-12" y="-12" width="48" height="48">
-              <path data-heart-kept fill="#fff" stroke="#fff" stroke-width="0.3" stroke-linejoin="round" />
-            </mask>
+            <path data-heart-kept fill="currentColor" />
             <path
               data-heart-shape
               fill="currentColor"

@@ -6,7 +6,8 @@
 
 const NS = 'http://www.w3.org/2000/svg';
 const BOX = 24; // heart viewBox size
-const SAMPLES = 72; // points sampled along the heart outline
+const SAMPLES = 720; // points sampled along the heart outline; dense enough to read as a curve
+const HULL = 10; // every HULL-th outline point is enough for collisions
 const SHARDS = 7;
 const GRAVITY = 2400; // px/s^2
 const STEP = 1 / 240;
@@ -39,7 +40,6 @@ function init() {
   let state = 'whole'; // whole | falling | returning | missing
   let bodies = [];
   let wedges = []; // every wedge of the current fracture, home or not
-  let serial = 0;
   let loose = null; // the shard left behind
   let drag = null; // { body, id, dx, dy, vx, vy, t }
   let raf = 0;
@@ -74,7 +74,8 @@ function init() {
     });
   }
 
-  // Cuts the heart into wedges that meet at a jittered point near its middle.
+  // Cuts the heart into wedges that meet at a jittered point near its middle. Each wedge
+  // is the fracture point plus the stretch of outline ("rim") between two cuts.
   function fracture() {
     const pts = outline();
     const centre = [12 + rand(-1.6, 1.6), 11.5 + rand(-1.6, 1.6)];
@@ -83,13 +84,16 @@ function init() {
     const cuts = Array.from({ length: SHARDS }, (_, i) => Math.round(offset + i * span + rand(-0.3, 0.3) * span));
     return cuts.map((from, i) => {
       const to = i + 1 < SHARDS ? cuts[i + 1] : cuts[0] + SAMPLES;
-      const poly = [centre];
-      for (let k = from; k <= to; k++) poly.push(pts[((k % SAMPLES) + SAMPLES) % SAMPLES]);
-      return poly;
+      const rim = [];
+      for (let k = from; k <= to; k++) rim.push(pts[((k % SAMPLES) + SAMPLES) % SAMPLES]);
+      return { centre, rim };
     });
   }
 
-  function makeBody(poly) {
+  const toPath = (poly) => 'M' + poly.map((p) => p.map((n) => n.toFixed(3)).join(' ')).join('L') + 'Z';
+
+  function makeBody(wedge) {
+    const poly = [wedge.centre, ...wedge.rim];
     let area = 0, cx = 0, cy = 0;
     for (let i = 0; i < poly.length; i++) {
       const [x0, y0] = poly[i];
@@ -101,34 +105,27 @@ function init() {
     }
     cx /= 3 * area;
     cy /= 3 * area;
-    const local = poly.map(([x, y]) => [x - cx, y - cy]);
+    const fine = poly.map(([x, y]) => [x - cx, y - cy]);
+    // The physics only needs a rough hull: the fracture point and every HULL-th rim point.
+    const local = fine.filter((_, i) => i === 0 || i === fine.length - 1 || (i - 1) % HULL === 0);
     const s = scale();
     const el = document.createElementNS(NS, 'g');
     // A generous invisible handle so a few-pixel shard is easy to grab.
     const handle = document.createElementNS(NS, 'circle');
     handle.setAttribute('r', String(22 / s));
     handle.setAttribute('fill', 'transparent');
-    // The shard is the real heart curve seen through its wedge, so at home it is
-    // pixel-identical to the same region of the icon and the hand-over shows no jump.
-    const id = `shard-${++serial}`;
-    const clip = document.createElementNS(NS, 'clipPath');
-    clip.setAttribute('id', id);
-    const cut = document.createElementNS(NS, 'path');
-    cut.setAttribute('d', toPath(wedge(poly)));
-    clip.append(cut);
+    // The shard is one plain filled outline that follows the heart's curve point by
+    // point. Plain paths are redrawn sharp at any zoom; clipped or masked ones are not
+    // (iOS Safari draws those through a fixed-resolution bitmap, which pixelates).
     const path = document.createElementNS(NS, 'path');
-    path.setAttribute('d', shape.getAttribute('d'));
+    path.setAttribute('d', toPath(fine));
     path.setAttribute('fill', 'currentColor');
-    path.setAttribute('clip-path', `url(#${id})`);
-    const art = document.createElementNS(NS, 'g');
-    art.setAttribute('transform', `translate(${-cx} ${-cy})`);
-    art.append(clip, path);
-    el.append(handle, art);
+    el.append(handle, path);
     el.style.cssText = 'pointer-events:auto;cursor:grab;touch-action:none';
     layer.append(el);
     const r2 = local.reduce((sum, [x, y]) => sum + x * x + y * y, 0) / local.length;
     const body = {
-      el, poly, local, cx, cy, s,
+      el, wedge, local, cx, cy, s,
       area: Math.abs(area / 2),
       inertia: (r2 * s * s) / 2, // per unit mass
       x: 0, y: 0, a: 0, vx: 0, vy: 0, w: 0,
@@ -207,18 +204,21 @@ function init() {
     b.rest = b.ground = 0;
   }
 
-  // A shard's wedge, pushed outward from the fracture point so it reaches past the heart's
-  // edge: the wedge only decides which slice of the heart is meant, the curve does the rest.
-  const wedge = ([c, ...rim]) => [c, ...rim.map(([x, y]) => [c[0] + (x - c[0]) * 1.6, c[1] + (y - c[1]) * 1.6])];
-  const toPath = (poly) => 'M' + poly.map((p) => p.join(' ')).join('L') + 'Z';
-
-  // The icon stays on screen showing only the wedges whose shards are home. Fitted
-  // wedges overlap by a hair (the mask's stroke) so no seam shows between them.
-  function updateMask() {
-    const out = new Set(bodies.map((b) => b.poly));
-    kept.setAttribute('d', wedges.filter((w) => !out.has(w)).map((w) => toPath(wedge(w))).join(''));
-    if (bodies.length) shape.setAttribute('mask', 'url(#heart-kept)');
-    else shape.removeAttribute('mask');
+  // While the heart is broken the icon shows only the wedges whose shards are home, as
+  // one plain path. Neighbouring fitted wedges are merged into a single outline, so there
+  // is no seam between them and nothing but ordinary vector shapes on screen.
+  function updateKept() {
+    const out = new Set(bodies.map((b) => b.wedge));
+    const n = wedges.length;
+    const start = wedges.findIndex((w) => out.has(w));
+    let d = '';
+    let rim = [];
+    for (let k = 1; start >= 0 && k <= n; k++) {
+      const w = wedges[(start + k) % n];
+      if (!out.has(w)) rim.push(...w.rim);
+      else if (rim.length) { d += toPath([w.centre, ...rim]); rim = []; }
+    }
+    kept.setAttribute('d', d);
   }
 
   // A shard has arrived in its gap: it becomes part of the heart again.
@@ -226,7 +226,7 @@ function init() {
     b.el.remove();
     bodies = bodies.filter((other) => other !== b);
     if (loose === b) loose = null;
-    updateMask();
+    updateKept();
     if (!bodies.length) {
       button.removeAttribute('data-broken');
       state = 'whole';
@@ -239,7 +239,7 @@ function init() {
     button.setAttribute('data-broken', '');
     wedges = fracture();
     bodies = wedges.map(makeBody);
-    updateMask();
+    updateKept();
     for (const b of bodies) {
       const dx = b.cx - 12, dy = b.cy - 11.5;
       const len = Math.hypot(dx, dy) || 1;
