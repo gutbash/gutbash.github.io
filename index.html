@@ -76,12 +76,15 @@
       }
       /* 60 beats a minute while the heart is whole. The beat resizes the icon itself, not
          a transform or an outline, so the browser redraws the vector at its true size on
-         every frame and the edge stays as smooth as a still one at any zoom. The fixed
-         1em box around it keeps the text from moving. */
+         every frame and the edge stays as smooth as a still one at any zoom. The icon
+         is positioned out of the text flow inside a fixed 1em box, so resizing it cannot
+         nudge the words next to it. */
       .heart-box {
         display: block;
+        position: relative;
         width: 1em;
         height: 1em;
+        contain: layout style;
       }
       @media (prefers-reduced-motion: no-preference) {
         .heart:not([data-broken]) svg {
@@ -95,17 +98,20 @@
         100% {
           width: 1em;
           height: 1em;
-          margin: 0;
+          top: 0;
+          left: 0;
         }
         9% {
           width: 1.16em;
           height: 1.16em;
-          margin: -0.096em 0 0 -0.08em;
+          top: -0.096em;
+          left: -0.08em;
         }
         26% {
           width: 1.09em;
           height: 1.09em;
-          margin: -0.054em 0 0 -0.045em;
+          top: -0.054em;
+          left: -0.045em;
         }
       }
       .heart:focus-visible {
@@ -114,6 +120,9 @@
       }
       .heart svg {
         display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
         width: 1em;
         height: 1em;
         overflow: visible;

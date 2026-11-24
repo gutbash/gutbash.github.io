@@ -26,10 +26,14 @@ function init() {
   const shape = icon.querySelector('[data-heart-shape]');
   const kept = icon.querySelector('[data-heart-kept]');
 
-  // Full-window layer the shards live in. It ignores the pointer except on the shards.
+  // Page-sized layer the shards live in. It ignores the pointer except on the shards.
+  // It is ordinary page content (absolute, not fixed): iOS Safari freezes and upscales
+  // fixed layers while the page is pinch-zoomed, so shards in one stop moving and blur.
+  // Everything below works in this layer's own coordinates.
   const layer = document.createElementNS(NS, 'svg');
   layer.setAttribute('aria-hidden', 'true');
-  layer.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible';
+  layer.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible';
+  document.body.style.position = 'relative';
   document.body.append(layer);
 
   let state = 'whole'; // whole | falling | returning | missing
@@ -51,8 +55,14 @@ function init() {
   const scale = () => icon.getBoundingClientRect().width / BOX;
   const home = (b) => {
     const r = icon.getBoundingClientRect();
+    const o = layer.getBoundingClientRect();
     const s = r.width / BOX;
-    return { x: r.left + b.cx * s, y: r.top + b.cy * s };
+    return { x: r.left - o.left + b.cx * s, y: r.top - o.top + b.cy * s };
+  };
+  // A pointer position in layer coordinates.
+  const point = (e) => {
+    const o = layer.getBoundingClientRect();
+    return { x: e.clientX - o.left, y: e.clientY - o.top };
   };
   const unwind = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -132,7 +142,11 @@ function init() {
   }
 
   function draw(b) {
-    b.el.setAttribute('transform', `translate(${b.x.toFixed(2)} ${b.y.toFixed(2)}) rotate(${((b.a * 180) / Math.PI).toFixed(2)}) scale(${b.s})`);
+    const transform = `translate(${b.x.toFixed(2)} ${b.y.toFixed(2)}) rotate(${((b.a * 180) / Math.PI).toFixed(2)}) scale(${b.s})`;
+    // Leave resting shards untouched so the browser can keep (and sharpen) what it drew.
+    if (transform === b.drawn) return;
+    b.drawn = transform;
+    b.el.setAttribute('transform', transform);
   }
 
   // One contact between a shard corner and a wall or the floor: push out, then bounce and rub.
@@ -256,7 +270,8 @@ function init() {
     b.el.setPointerCapture(e.pointerId);
     b.el.style.cursor = 'grabbing';
     b.vx = b.vy = b.w = 0;
-    drag = { body: b, id: e.pointerId, dx: b.x - e.clientX, dy: b.y - e.clientY, vx: 0, vy: 0, t: e.timeStamp };
+    const at = point(e);
+    drag = { body: b, id: e.pointerId, dx: b.x - at.x, dy: b.y - at.y, vx: 0, vy: 0, t: e.timeStamp };
     b.el.addEventListener('pointermove', move);
     b.el.addEventListener('pointerup', release);
     b.el.addEventListener('pointercancel', release);
@@ -266,7 +281,8 @@ function init() {
   function move(e) {
     if (!drag || e.pointerId !== drag.id) return;
     const b = drag.body;
-    const x = e.clientX + drag.dx, y = e.clientY + drag.dy;
+    const at = point(e);
+    const x = at.x + drag.dx, y = at.y + drag.dy;
     const dt = Math.max(1, e.timeStamp - drag.t) / 1000;
     drag.vx = 0.6 * drag.vx + 0.4 * ((x - b.x) / dt);
     drag.vy = 0.6 * drag.vy + 0.4 * ((y - b.y) / dt);
