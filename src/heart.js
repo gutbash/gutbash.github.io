@@ -19,6 +19,7 @@ const BOUNCE = 0.85; // speed kept when bouncing off an edge of the page
 const REBUILD_DELAY_MS = 5000; // since the burst or the last shard was let go, none held
 const RETURN_MS = 2200;
 const STAGGER_MS = 140;
+const THICK = 0.25; // shard thickness, in heart viewBox units
 const SNAP_RADIUS = 18; // px from home at which a dropped shard clicks in
 
 const button = document.querySelector('[data-heart]');
@@ -141,7 +142,11 @@ function init() {
     const path = document.createElementNS(NS, 'path');
     path.setAttribute('d', toPath(fine));
     path.setAttribute('fill', 'currentColor');
-    el.append(handle, path);
+    // The shard's cut and outer edges, seen when it is turned: redrawn every frame from
+    // the rough hull, under the face.
+    const side = document.createElementNS(NS, 'path');
+    side.setAttribute('fill', 'currentColor');
+    el.append(handle, side, path);
     el.style.cssText = 'pointer-events:auto;cursor:grab;touch-action:none';
     layer.append(el);
     const r2 = local.reduce((sum, [x, y]) => sum + x * x + y * y, 0) / local.length;
@@ -152,7 +157,8 @@ function init() {
       x: 0, y: 0, vx: 0, vy: 0,
       q: [1, 0, 0, 0],
       w: 0, wx: 0, wy: 0, // turn rate about the axis out of the page, and the two in it
-      path,
+      path, side,
+      turn: Math.sign(area), // which way round the outline runs
       from: null, // set while gliding back into the heart
       snap: null, // set while clicking into the gap
     };
@@ -161,21 +167,48 @@ function init() {
     return body;
   }
 
+  // A shard is a slab: its face, plus the walls between its two faces. Seen straight on
+  // (no perspective), the nearer face is the flat shape under a 2D matrix, and the walls
+  // are one quad per hull edge, running back to where the far face's edge would be. The
+  // far face itself is always hidden behind those. Faces dim as they turn away and walls
+  // brighten as they turn into view, mixed with the page colour so everything stays
+  // opaque. Lying flat, the walls vanish and the face is exactly the heart's own colour.
   function draw(b) {
     const at = `translate(${b.x.toFixed(2)} ${b.y.toFixed(2)})`;
     if (at !== b.drawnAt) b.el.setAttribute('transform', (b.drawnAt = at));
     const [w, x, y, z] = b.q;
     const s = b.s;
-    const m = [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * y - w * z), 1 - 2 * (x * x + z * z)];
-    // Shards turned away from the viewer dim a little, which is what makes the turn read
-    // as depth and not as squashing. Flat on, they are exactly the heart's own colour.
-    const facing = Math.abs(1 - 2 * (x * x + y * y));
-    const look = `matrix(${m.map((n) => (n * s).toFixed(4)).join(' ')} 0 0)|${(0.55 + 0.45 * facing).toFixed(3)}`;
-    if (look === b.drawn) return;
-    b.drawn = look;
-    const [matrix, opacity] = look.split('|');
-    b.path.setAttribute('transform', matrix);
-    b.path.setAttribute('fill-opacity', opacity);
+    const m00 = (1 - 2 * (y * y + z * z)) * s, m01 = 2 * (x * y - w * z) * s;
+    const m10 = 2 * (x * y + w * z) * s, m11 = (1 - 2 * (x * x + z * z)) * s;
+    const nz = 1 - 2 * (x * x + y * y); // how squarely the face looks at the viewer
+    const half = ((nz < 0 ? -1 : 1) * THICK * s) / 2;
+    const ox = 2 * (x * z + w * y) * half, oy = 2 * (y * z - w * x) * half; // to the nearer face
+    const face = `matrix(${m00.toFixed(4)} ${m10.toFixed(4)} ${m01.toFixed(4)} ${m11.toFixed(4)} ${ox.toFixed(3)} ${oy.toFixed(3)})`;
+    if (face === b.drawn) return;
+    b.drawn = face;
+    b.path.setAttribute('transform', face);
+    const shade = (el, pct) => {
+      if (el.shade === pct) return;
+      el.shade = pct;
+      el.style.fill = pct >= 100 ? '' : `color-mix(in srgb, currentColor ${pct}%, var(--bg))`;
+    };
+    shade(b.path, Math.round(55 + 45 * Math.abs(nz)));
+    if (Math.hypot(ox, oy) < 0.02) { b.side.setAttribute('d', ''); return; }
+    shade(b.side, Math.round(50 + 40 * Math.sqrt(Math.max(0, 1 - nz * nz))));
+    // Every piece of the wall path is wound the same way, so overlapping quads add up
+    // under the nonzero fill rule and never punch holes in each other.
+    const pts = b.local.map(([lx, ly]) => [lx * m00 + ly * m01, lx * m10 + ly * m11]);
+    if (b.turn * nz < 0) pts.reverse();
+    const f = (n) => n.toFixed(2);
+    let d = 'M' + pts.map(([px, py]) => `${f(px + ox)} ${f(py + oy)}`).join('L') + 'Z';
+    for (let i = 0; i < pts.length; i++) {
+      const [ax, ay] = pts[i];
+      const [bx, by] = pts[(i + 1) % pts.length];
+      const quad = [[ax + ox, ay + oy], [bx + ox, by + oy], [bx - ox, by - oy], [ax - ox, ay - oy]];
+      if ((bx - ax) * oy - (by - ay) * ox > 0) quad.reverse();
+      d += 'M' + quad.map(([qx, qy]) => `${f(qx)} ${f(qy)}`).join('L') + 'Z';
+    }
+    b.side.setAttribute('d', d);
   }
 
   // A shard corner has crossed an edge of the page: push it back in and bounce it off.
