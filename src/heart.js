@@ -1,18 +1,24 @@
-// The heart in the tagline: press it and it shatters into rigid shards that fall to the
-// bottom of the window. Every shard can be grabbed and thrown, even in midair. Once they
-// can be fitted back into the heart by hand, one at a time. If they are left lying still
-// and untouched for a while, the remaining ones drift back into place by themselves,
-// except one, which stays on the floor until it is dragged back into its gap.
+// The heart in the tagline: press it and it bursts into rigid shards that drift as if
+// weightless, turning slowly and never quite stopping, bouncing softly off the edges of
+// the page. On a phone, tilting the device nudges them. Every shard can be grabbed and
+// thrown, and fitted back into the heart by hand, one at a time. If they are left alone
+// for a while, the remaining ones glide back into place by themselves, except one, which
+// keeps floating until it is dragged back into its gap.
 
 const NS = 'http://www.w3.org/2000/svg';
 const BOX = 24; // heart viewBox size
 const SAMPLES = 720; // points sampled along the heart outline; dense enough to read as a curve
 const HULL = 10; // every HULL-th outline point is enough for collisions
 const SHARDS = 7;
-const GRAVITY = 2400; // px/s^2
 const STEP = 1 / 240;
 const MAX_SPIN = 22; // rad/s; tiny shards would otherwise buzz like tops
-const REBUILD_DELAY_MS = 5000; // all shards settled and none held, for this long
+const DRAG = 1.7; // 1/s; how quickly a burst or a throw bleeds off
+const DRIFT = 14; // px/s; shards never go slower than this
+const SPIN_DRIFT = 0.35; // rad/s; nor turn slower than this
+const BOUNCE = 0.85; // speed kept when bouncing off an edge of the page
+const TILT = 9; // px/s^2 of push per degree the phone is tilted
+const TILT_MAX = 25; // degrees
+const REBUILD_DELAY_MS = 5000; // since the burst or the last shard was let go, none held
 const RETURN_MS = 2200;
 const STAGGER_MS = 140;
 const SNAP_RADIUS = 18; // px from home at which a dropped shard clicks in
@@ -38,7 +44,7 @@ function init() {
   document.body.style.position = 'relative';
   document.body.append(layer);
 
-  let state = 'whole'; // whole | falling | returning | missing
+  let state = 'whole'; // whole | floating | returning | missing
   let bodies = [];
   let wedges = []; // every wedge of the current fracture, home or not
   let loose = null; // the shard left behind
@@ -46,10 +52,11 @@ function init() {
   let raf = 0;
   let last = 0;
   let acc = 0;
-  let settledAt = 0;
-  // Walls and floor, in the same coordinates the shards are drawn in. Read from the layer
+  let idleSince = 0;
+  const tilt = { x: 0, y: 0, base: null, on: false }; // push from the phone's tilt, px/s^2
+  // The page edges, in the same coordinates the shards are drawn in. Read from the layer
   // itself, not window.innerWidth/Height: those shrink to the visible area when a phone
-  // is pinch-zoomed, which would put the floor in the middle of the page.
+  // is pinch-zoomed, which would put the edges in the middle of the page.
   let W = 0, H = 0;
   let returnAt = 0;
 
@@ -130,7 +137,6 @@ function init() {
       area: Math.abs(area / 2),
       inertia: (r2 * s * s) / 2, // per unit mass
       x: 0, y: 0, a: 0, vx: 0, vy: 0, w: 0,
-      rest: 0, ground: 0, asleep: false,
       from: null, // set while gliding back into the heart
       snap: null, // set while clicking into the gap
     };
@@ -141,68 +147,90 @@ function init() {
 
   function draw(b) {
     const transform = `translate(${b.x.toFixed(2)} ${b.y.toFixed(2)}) rotate(${((b.a * 180) / Math.PI).toFixed(2)}) scale(${b.s})`;
-    // Leave resting shards untouched so the browser can keep (and sharpen) what it drew.
     if (transform === b.drawn) return;
     b.drawn = transform;
     b.el.setAttribute('transform', transform);
   }
 
-  // One contact between a shard corner and a wall or the floor: push out, then bounce and rub.
+  // A shard corner has crossed an edge of the page: push it back in and bounce it off.
   function contact(b, rx, ry, nx, ny, depth) {
     b.x += nx * depth;
     b.y += ny * depth;
-    const vpx = b.vx - b.w * ry;
-    const vpy = b.vy + b.w * rx;
-    const vn = vpx * nx + vpy * ny;
+    const vn = (b.vx - b.w * ry) * nx + (b.vy + b.w * rx) * ny;
     if (vn >= 0) return;
     const rn = rx * ny - ry * nx;
-    const bounce = vn < -90 ? 0.3 : 0;
-    const j = (-(1 + bounce) * vn) / (1 + (rn * rn) / b.inertia);
+    const j = (-(1 + BOUNCE) * vn) / (1 + (rn * rn) / b.inertia);
     b.vx += j * nx;
     b.vy += j * ny;
     b.w += (rn * j) / b.inertia;
-    const tx = -ny, ty = nx;
-    const vt = (b.vx - b.w * ry) * tx + (b.vy + b.w * rx) * ty;
-    const rt = rx * ty - ry * tx;
-    const jt = Math.max(-0.5 * j, Math.min(0.5 * j, -vt / (1 + (rt * rt) / b.inertia)));
-    b.vx += jt * tx;
-    b.vy += jt * ty;
-    b.w += (rt * jt) / b.inertia;
   }
 
   function step(b, dt) {
-    b.vy += GRAVITY * dt;
+    // Weightless: only the phone's tilt pushes, and only gently.
+    b.vx += tilt.x * dt;
+    b.vy += tilt.y * dt;
+    // Fast motion bleeds off, but never below a slow drift and a slow turn.
+    const speed = Math.hypot(b.vx, b.vy);
+    if (speed > DRIFT) {
+      const k = Math.max(DRIFT / speed, Math.exp(-DRAG * dt));
+      b.vx *= k;
+      b.vy *= k;
+    } else if (speed > 0.01) {
+      const k = Math.min(DRIFT, speed + 20 * dt) / speed;
+      b.vx *= k;
+      b.vy *= k;
+    } else {
+      const a = rand(0, Math.PI * 2);
+      b.vx = Math.cos(a);
+      b.vy = Math.sin(a);
+    }
+    const spin = Math.abs(b.w);
+    if (spin > SPIN_DRIFT) b.w *= Math.max(SPIN_DRIFT / spin, Math.exp(-DRAG * dt));
+    else b.w = (b.w < 0 ? -1 : 1) * Math.min(SPIN_DRIFT, spin + 0.5 * dt);
+    b.w = Math.max(-MAX_SPIN, Math.min(MAX_SPIN, b.w));
+
     b.x += b.vx * dt;
     b.y += b.vy * dt;
-    b.w = Math.max(-MAX_SPIN, Math.min(MAX_SPIN, b.w));
     b.a += b.w * dt;
     const cos = Math.cos(b.a) * b.s, sin = Math.sin(b.a) * b.s;
-    let grounded = false;
     for (const [lx, ly] of b.local) {
       const rx = lx * cos - ly * sin;
       const ry = lx * sin + ly * cos;
-      if (b.y + ry > H) { contact(b, rx, ry, 0, -1, b.y + ry - H); grounded = true; }
       if (b.x + rx < 0) contact(b, rx, ry, 1, 0, -(b.x + rx));
       if (b.x + rx > W) contact(b, rx, ry, -1, 0, b.x + rx - W);
-    }
-    if (grounded) {
-      b.vx *= 0.985;
-      b.w *= 0.97;
-      const slow = b.vx * b.vx + b.vy * b.vy < 900 && Math.abs(b.w) < 4;
-      b.rest = slow ? b.rest + dt : 0;
-      b.ground += dt; // total floor time; stops a shard that rocks forever
-      if (b.rest > 0.2 || b.ground > 1.2) { b.asleep = true; b.vx = b.vy = b.w = 0; }
-    } else {
-      b.rest = 0;
+      if (b.y + ry < 0) contact(b, rx, ry, 0, 1, -(b.y + ry));
+      if (b.y + ry > H) contact(b, rx, ry, 0, -1, b.y + ry - H);
     }
   }
 
   const held = (b) => drag && drag.body === b;
-  const free = (b) => !b.asleep && !b.from && !b.snap && !held(b);
+  const free = (b) => !b.from && !b.snap && !held(b);
 
-  function wake(b) {
-    b.asleep = false;
-    b.rest = b.ground = 0;
+  // Tilt is measured against a slowly following baseline, so however the phone is being
+  // held counts as level and only fresh tilts push the shards.
+  function onTilt(e) {
+    if (e.gamma == null || e.beta == null) return;
+    const turned = screen.orientation ? screen.orientation.angle : 0;
+    const g = turned === 90 ? e.beta : turned === 270 ? -e.beta : e.gamma;
+    const b = turned === 90 ? -e.gamma : turned === 270 ? e.gamma : e.beta;
+    tilt.base ||= { g, b };
+    tilt.base.g += (g - tilt.base.g) * 0.006;
+    tilt.base.b += (b - tilt.base.b) * 0.006;
+    const clamp = (n) => Math.max(-TILT_MAX, Math.min(TILT_MAX, n));
+    tilt.x = clamp(g - tilt.base.g) * TILT;
+    tilt.y = clamp(b - tilt.base.b) * TILT;
+  }
+
+  // iOS only hands out motion data after asking the visitor, and only from a tap.
+  function enableTilt() {
+    if (tilt.on || typeof DeviceOrientationEvent === 'undefined') return;
+    tilt.on = true;
+    const listen = () => addEventListener('deviceorientation', onTilt);
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then((answer) => answer === 'granted' && listen()).catch(() => {});
+    } else {
+      listen();
+    }
   }
 
   // While the heart is broken the icon shows only the wedges whose shards are home, as
@@ -235,8 +263,9 @@ function init() {
   }
 
   function shatter() {
-    state = 'falling';
-    settledAt = 0;
+    state = 'floating';
+    idleSince = performance.now();
+    enableTilt();
     button.setAttribute('data-broken', '');
     wedges = fracture();
     bodies = wedges.map(makeBody);
@@ -244,10 +273,10 @@ function init() {
     for (const b of bodies) {
       const dx = b.cx - 12, dy = b.cy - 11.5;
       const len = Math.hypot(dx, dy) || 1;
-      const speed = rand(70, 190);
-      b.vx = (dx / len) * speed + rand(-30, 30);
-      b.vy = (dy / len) * speed - rand(180, 340);
-      b.w = rand(-9, 9);
+      const speed = rand(240, 520);
+      b.vx = (dx / len) * speed + rand(-60, 60);
+      b.vy = (dy / len) * speed + rand(-60, 60);
+      b.w = rand(-10, 10);
     }
     run();
   }
@@ -304,14 +333,14 @@ function init() {
       snapHome(b);
     } else {
       const cap = 3000;
-      // A pointer that paused before letting go drops the shard instead of flinging it.
+      // A pointer that paused before letting go leaves the shard adrift instead of flinging it.
       const stale = e.timeStamp - drag.t > 80;
       b.vx = stale ? 0 : Math.max(-cap, Math.min(cap, drag.vx));
       b.vy = stale ? 0 : Math.max(-cap, Math.min(cap, drag.vy));
       b.w = rand(-6, 6);
-      wake(b);
     }
     drag = null;
+    idleSince = performance.now();
     run();
   }
 
@@ -329,7 +358,7 @@ function init() {
     W = bounds.width;
     H = bounds.height;
 
-    // Shards in free fall.
+    // Shards adrift.
     acc += dt;
     while (acc >= STEP) {
       for (const b of bodies) if (free(b)) step(b, STEP);
@@ -350,17 +379,9 @@ function init() {
     }
     if (state === 'whole') return;
 
-    let active = bodies.some((b) => free(b) || b.snap) || !!drag;
-
-    if (state === 'falling') {
-      // The rebuild clock only runs while every remaining shard is still and nobody is holding one.
-      if (bodies.every((b) => b.asleep) && !drag) {
-        settledAt ||= now;
-        if (now - settledAt >= REBUILD_DELAY_MS) beginReturn(now);
-      } else {
-        settledAt = 0;
-      }
-      active = true;
+    if (state === 'floating') {
+      // The rebuild clock restarts whenever a shard is let go and waits while one is held.
+      if (!drag && now - idleSince >= REBUILD_DELAY_MS) beginReturn(now);
     } else if (state === 'returning') {
       for (const b of bodies.filter((b) => b.from)) {
         const t = Math.max(0, Math.min(1, (now - returnAt - b.delay) / RETURN_MS));
@@ -374,11 +395,10 @@ function init() {
       }
       if (state === 'whole') return; // the last shard was fitted by hand meanwhile
       if (!bodies.some((b) => b.from)) state = 'missing';
-      active = true;
     }
 
     for (const b of bodies) draw(b);
-    if (active) run();
+    run(); // a broken heart never comes to rest
   }
 
   function run() {
@@ -394,7 +414,7 @@ function init() {
   });
 
   addEventListener('resize', () => {
-    for (const b of bodies) { b.s = scale(); wake(b); }
+    for (const b of bodies) b.s = scale();
     if (bodies.length) run();
   });
 }
