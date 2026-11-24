@@ -88,12 +88,33 @@ function init() {
     b.q = [Math.cos(h), axis[0] * sin, axis[1] * sin, axis[2] * sin];
   }
 
+  // SAMPLES points evenly spaced along the heart's outline, worked out from the path's own
+  // curves. (Asking the browser, with getPointAtLength, costs over 100 ms for this many
+  // points while the beat animation is running, which made the first press stutter.)
+  let outlined = null;
   function outline() {
-    const total = shape.getTotalLength();
-    return Array.from({ length: SAMPLES }, (_, i) => {
-      const p = shape.getPointAtLength((i / SAMPLES) * total);
-      return [p.x, p.y];
+    if (outlined) return outlined;
+    const n = shape.getAttribute('d').match(/-?[\d.]+/g).map(Number); // M x y, then C x1 y1 x2 y2 x y ...
+    const dense = [[n[0], n[1]]];
+    for (let i = 2; i + 5 < n.length; i += 6) {
+      const [x0, y0, x1, y1, x2, y2, x3, y3] = n.slice(i - 2, i + 6);
+      for (let k = 1; k <= 96; k++) {
+        const t = k / 96, u = 1 - t;
+        const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+        dense.push([a * x0 + b * x1 + c * x2 + d * x3, a * y0 + b * y1 + c * y2 + d * y3]);
+      }
+    }
+    const along = [0];
+    for (let i = 1; i < dense.length; i++) along.push(along[i - 1] + Math.hypot(dense[i][0] - dense[i - 1][0], dense[i][1] - dense[i - 1][1]));
+    const total = along[along.length - 1];
+    let at = 1;
+    outlined = Array.from({ length: SAMPLES }, (_, i) => {
+      const want = (i / SAMPLES) * total;
+      while (along[at] < want) at++;
+      const t = (want - along[at - 1]) / (along[at] - along[at - 1] || 1);
+      return [dense[at - 1][0] + (dense[at][0] - dense[at - 1][0]) * t, dense[at - 1][1] + (dense[at][1] - dense[at - 1][1]) * t];
     });
+    return outlined;
   }
 
   // Cuts the heart into wedges that meet at a jittered point near its middle. Each wedge
