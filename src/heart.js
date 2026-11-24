@@ -42,6 +42,10 @@ function init() {
   let last = 0;
   let acc = 0;
   let settledAt = 0;
+  // Walls and floor, in the same coordinates the shards are drawn in. Read from the layer
+  // itself, not window.innerWidth/Height: those shrink to the visible area when a phone
+  // is pinch-zoomed, which would put the floor in the middle of the page.
+  let W = 0, H = 0;
   let returnAt = 0;
 
   const scale = () => icon.getBoundingClientRect().width / BOX;
@@ -155,7 +159,6 @@ function init() {
   }
 
   function step(b, dt) {
-    const W = innerWidth, H = innerHeight;
     b.vy += GRAVITY * dt;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
@@ -304,6 +307,10 @@ function init() {
     raf = 0;
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+
+    const bounds = layer.getBoundingClientRect();
+    W = bounds.width;
+    H = bounds.height;
 
     // Shards in free fall.
     acc += dt;
